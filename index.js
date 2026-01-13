@@ -204,9 +204,52 @@ app.get("/district/category-totals", async (req, res) => {
   res.json(data);
 });
 
+
+// ---------------- ADMIN MONTH CONTROL ----------------
+
+// Check if month is locked
+app.get("/admin/month-status", async (req, res) => {
+  const { month, year } = req.query;
+
+  const { data, error } = await supabase
+    .from("month_locks")
+    .select("locked")
+    .eq("month", month)
+    .eq("year", year)
+    .single();
+
+  if (error) return res.json({ locked: false });
+
+  res.json({ locked: data.locked });
+});
+
+
+// Lock month
+app.post("/admin/lock-month", async (req, res) => {
+  const { month, year } = req.body;
+
+  await supabase
+    .from("month_locks")
+    .upsert({ month, year, locked: true });
+
+  res.json({ status: "locked" });
+});
+
+
+// Unlock month
+app.post("/admin/unlock-month", async (req, res) => {
+  const { month, year } = req.body;
+
+  await supabase
+    .from("month_locks")
+    .upsert({ month, year, locked: false });
+
+  res.json({ status: "unlocked" });
+});
+
+
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3001;
-
 app.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
