@@ -170,7 +170,7 @@ app.get("/district/report", async (req, res) => {
 
   const { data, error } = await supabase
     .from("district_report")
-    .select("taluka, category, sanctioned, filled, vacant")
+    .select("taluka, category, sanctioned, filled, vacant, vacancy_percent")
     .eq("month", month)
     .eq("year", year)
     .order("taluka")
