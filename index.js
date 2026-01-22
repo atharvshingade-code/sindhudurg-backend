@@ -19,6 +19,21 @@ app.get("/", (req, res) => {
   res.send("Sindhudurg Education API running");
 });
 
+async function getActiveMonth() {
+  const { data, error } = await supabase
+    .from("active_month")
+    .select("month, year")
+    .eq("id", 1)
+    .single();
+
+  if (error || !data) {
+    throw new Error("Active month not set");
+  }
+
+  return data;
+}
+
+
 // ---------------- TALUKA FORM DATA ----------------
 app.get("/taluka/form-data", async (req, res) => {
   try {
@@ -110,7 +125,8 @@ app.post("/taluka/submit", async (req, res) => {
       return res.status(400).json({ error: "No taluka mapping" });
     }
 
-    const { month, year, data } = req.body;
+    // 🔒 FORCE ACTIVE MONTH
+    const { month, year } = await getActiveMonth();
 
     const { data: lock } = await supabase
       .from("month_locks")
@@ -123,7 +139,9 @@ app.post("/taluka/submit", async (req, res) => {
       return res.status(403).json({ error: "Month is locked" });
     }
 
-    // Delete previous entries
+    const { data } = req.body;
+
+    // Remove previous submission for this month
     await supabase
       .from("monthly_filled")
       .delete()
@@ -131,7 +149,7 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("month", month)
       .eq("year", year);
 
-    // Insert new ones
+    // Insert new submission
     for (const row of data) {
       await supabase.from("monthly_filled").insert({
         taluka_id: profile.taluka_id,
@@ -142,12 +160,13 @@ app.post("/taluka/submit", async (req, res) => {
       });
     }
 
-    res.json({ status: "saved" });
+    res.json({ status: "saved", month, year });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 
 // ---------------- DISTRICT SUMMARY ----------------
