@@ -15,10 +15,11 @@ const supabase = createClient(
 );
 
 // ---------------- ROOT ----------------
-app.get("/", (req, res) => {
+app.get("/", (_req, res) => {
   res.send("Sindhudurg Education API running");
 });
 
+// ---------------- ACTIVE MONTH ----------------
 async function getActiveMonth() {
   const { data, error } = await supabase
     .from("active_month")
@@ -26,13 +27,9 @@ async function getActiveMonth() {
     .eq("id", 1)
     .single();
 
-  if (error || !data) {
-    throw new Error("Active month not set");
-  }
-
+  if (error || !data) throw new Error("Active month not set");
   return data;
 }
-
 
 // ---------------- TALUKA FORM DATA ----------------
 app.get("/taluka/form-data", async (req, res) => {
@@ -41,13 +38,11 @@ app.get("/taluka/form-data", async (req, res) => {
     if (!auth) return res.json([]);
 
     const token = auth.replace("Bearer ", "");
-
     const {
-      data: { user },
-      error: userError
+      data: { user }
     } = await supabase.auth.getUser(token);
 
-    if (userError || !user) return res.json([]);
+    if (!user) return res.json([]);
 
     const { data: profile } = await supabase
       .from("user_profiles")
@@ -57,7 +52,7 @@ app.get("/taluka/form-data", async (req, res) => {
 
     if (!profile) return res.json([]);
 
-    const { month, year } = req.query;
+    const { month, year } = await getActiveMonth();
 
     const { data, error } = await supabase
       .from("sanctioned_posts")
@@ -69,14 +64,11 @@ app.get("/taluka/form-data", async (req, res) => {
       `)
       .eq("taluka_id", profile.taluka_id);
 
-    if (error || !Array.isArray(data)) {
-      console.error(error);
-      return res.json([]);
-    }
+    if (error || !Array.isArray(data)) return res.json([]);
 
     const rows = data.map(r => {
       const record = r.monthly_filled?.find(
-        m => m.month == month && m.year == year
+        m => m.month === month && m.year === year
       );
 
       const filled = record?.filled || 0;
@@ -97,7 +89,6 @@ app.get("/taluka/form-data", async (req, res) => {
   }
 });
 
-
 // ---------------- TALUKA SUBMIT ----------------
 app.post("/taluka/submit", async (req, res) => {
   try {
@@ -105,15 +96,11 @@ app.post("/taluka/submit", async (req, res) => {
     if (!auth) return res.status(401).json({ error: "No token" });
 
     const token = auth.replace("Bearer ", "");
-
     const {
-      data: { user },
-      error: userError
+      data: { user }
     } = await supabase.auth.getUser(token);
 
-    if (userError || !user) {
-      return res.status(401).json({ error: "Invalid user" });
-    }
+    if (!user) return res.status(401).json({ error: "Invalid user" });
 
     const { data: profile } = await supabase
       .from("user_profiles")
@@ -121,11 +108,8 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("user_id", user.id)
       .single();
 
-    if (!profile) {
-      return res.status(400).json({ error: "No taluka mapping" });
-    }
+    if (!profile) return res.status(400).json({ error: "No taluka mapping" });
 
-    // 🔒 FORCE ACTIVE MONTH
     const { month, year } = await getActiveMonth();
 
     const { data: lock } = await supabase
@@ -135,13 +119,11 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("year", year)
       .single();
 
-    if (lock?.locked) {
+    if (lock?.locked)
       return res.status(403).json({ error: "Month is locked" });
-    }
 
     const { data } = req.body;
 
-    // Remove previous submission for this month
     await supabase
       .from("monthly_filled")
       .delete()
@@ -149,7 +131,6 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("month", month)
       .eq("year", year);
 
-    // Insert new submission
     for (const row of data) {
       await supabase.from("monthly_filled").insert({
         taluka_id: profile.taluka_id,
@@ -167,11 +148,9 @@ app.post("/taluka/submit", async (req, res) => {
   }
 });
 
-
-
 // ---------------- DISTRICT SUMMARY ----------------
-app.get("/district/summary", async (req, res) => {
-  const { month, year } = req.query;
+app.get("/district/summary", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
   const { data, error } = await supabase
     .from("district_summary_view")
@@ -184,8 +163,8 @@ app.get("/district/summary", async (req, res) => {
 });
 
 // ---------------- DISTRICT REPORT ----------------
-app.get("/district/report", async (req, res) => {
-  const { month, year } = req.query;
+app.get("/district/report", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
   const { data, error } = await supabase
     .from("district_report")
@@ -200,8 +179,8 @@ app.get("/district/report", async (req, res) => {
 });
 
 // ---------------- PENDING TALUKAS ----------------
-app.get("/district/pending", async (req, res) => {
-  const { month, year } = req.query;
+app.get("/district/pending", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
   const { data, error } = await supabase
     .from("district_pending_view")
@@ -213,39 +192,22 @@ app.get("/district/pending", async (req, res) => {
   res.json(data);
 });
 
-// ---------------- CATEGORY TOTALS ----------------
-app.get("/district/category-totals", async (req, res) => {
-  const { data, error } = await supabase
-    .from("district_category_totals")
-    .select("*");
-
-  if (error) return res.status(500).json(error);
-  res.json(data);
-});
-
-
 // ---------------- ADMIN MONTH CONTROL ----------------
+app.get("/admin/month-status", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
-// Check if month is locked
-app.get("/admin/month-status", async (req, res) => {
-  const { month, year } = req.query;
-
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("month_locks")
     .select("locked")
     .eq("month", month)
     .eq("year", year)
     .single();
 
-  if (error) return res.json({ locked: false });
-
-  res.json({ locked: data.locked });
+  res.json({ locked: data?.locked ?? false });
 });
 
-
-// Lock month
-app.post("/admin/lock-month", async (req, res) => {
-  const { month, year } = req.body;
+app.post("/admin/lock-month", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
   await supabase
     .from("month_locks")
@@ -254,10 +216,8 @@ app.post("/admin/lock-month", async (req, res) => {
   res.json({ status: "locked" });
 });
 
-
-// Unlock month
-app.post("/admin/unlock-month", async (req, res) => {
-  const { month, year } = req.body;
+app.post("/admin/unlock-month", async (_req, res) => {
+  const { month, year } = await getActiveMonth();
 
   await supabase
     .from("month_locks")
@@ -265,7 +225,6 @@ app.post("/admin/unlock-month", async (req, res) => {
 
   res.json({ status: "unlocked" });
 });
-
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3001;
