@@ -19,6 +19,16 @@ app.get("/", (_req, res) => {
   res.send("Sindhudurg Education API running");
 });
 
+// ---------------- HELPERS ----------------
+const requireMonthYear = (req, res) => {
+  const { month, year } = req.query;
+  if (!month || !year) {
+    res.status(400).json({ error: "month and year required" });
+    return null;
+  }
+  return { month: Number(month), year: Number(year) };
+};
+
 // ---------------- TALUKA FORM DATA ----------------
 app.get("/taluka/form-data", async (req, res) => {
   try {
@@ -26,10 +36,7 @@ app.get("/taluka/form-data", async (req, res) => {
     if (!auth) return res.json([]);
 
     const token = auth.replace("Bearer ", "");
-    const {
-      data: { user }
-    } = await supabase.auth.getUser(token);
-
+    const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return res.json([]);
 
     const { data: profile } = await supabase
@@ -40,8 +47,9 @@ app.get("/taluka/form-data", async (req, res) => {
 
     if (!profile) return res.json([]);
 
-    const { month, year } = req.query;
-
+    const params = requireMonthYear(req, res);
+    if (!params) return;
+    const { month, year } = params;
 
     const { data, error } = await supabase
       .from("sanctioned_posts")
@@ -49,7 +57,7 @@ app.get("/taluka/form-data", async (req, res) => {
         post_category_id,
         sanctioned,
         post_categories!sanctioned_posts_post_category_id_fkey(name),
-        monthly_filled!left(filled, month, year)
+        monthly_filled!left(month, year, filled)
       `)
       .eq("taluka_id", profile.taluka_id);
 
@@ -60,7 +68,7 @@ app.get("/taluka/form-data", async (req, res) => {
         m => m.month === month && m.year === year
       );
 
-      const filled = record?.filled || 0;
+      const filled = record?.filled ?? 0;
 
       return {
         category_id: r.post_category_id,
@@ -85,10 +93,7 @@ app.post("/taluka/submit", async (req, res) => {
     if (!auth) return res.status(401).json({ error: "No token" });
 
     const token = auth.replace("Bearer ", "");
-    const {
-      data: { user }
-    } = await supabase.auth.getUser(token);
-
+    const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return res.status(401).json({ error: "Invalid user" });
 
     const { data: profile } = await supabase
@@ -100,11 +105,9 @@ app.post("/taluka/submit", async (req, res) => {
     if (!profile) return res.status(400).json({ error: "No taluka mapping" });
 
     const { month, year, data } = req.body;
-
     if (!month || !year) {
       return res.status(400).json({ error: "Month and year required" });
     }
-
 
     const { data: lock } = await supabase
       .from("month_locks")
@@ -113,10 +116,9 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("year", year)
       .single();
 
-    if (lock?.locked)
+    if (lock?.locked) {
       return res.status(403).json({ error: "Month is locked" });
-
-    
+    }
 
     await supabase
       .from("monthly_filled")
@@ -135,7 +137,7 @@ app.post("/taluka/submit", async (req, res) => {
       });
     }
 
-    res.json({ status: "saved", month, year });
+    res.json({ status: "saved" });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -143,8 +145,10 @@ app.post("/taluka/submit", async (req, res) => {
 });
 
 // ---------------- DISTRICT SUMMARY ----------------
-app.get("/district/summary", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
+app.get("/district/summary", async (req, res) => {
+  const params = requireMonthYear(req, res);
+  if (!params) return;
+  const { month, year } = params;
 
   const { data, error } = await supabase
     .from("district_summary_view")
@@ -157,24 +161,28 @@ app.get("/district/summary", async (_req, res) => {
 });
 
 // ---------------- DISTRICT REPORT ----------------
-app.get("/district/report", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
+app.get("/district/report", async (req, res) => {
+  const params = requireMonthYear(req, res);
+  if (!params) return;
+  const { month, year } = params;
 
   const { data, error } = await supabase
     .from("district_report")
     .select("taluka, category, sanctioned, filled, vacant, vacancy_percent")
     .eq("month", month)
     .eq("year", year)
-    .order("taluka")
-    .order("category");
+    .order("category")
+    .order("taluka");
 
   if (error) return res.status(500).json(error);
   res.json(data);
 });
 
 // ---------------- PENDING TALUKAS ----------------
-app.get("/district/pending", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
+app.get("/district/pending", async (req, res) => {
+  const params = requireMonthYear(req, res);
+  if (!params) return;
+  const { month, year } = params;
 
   const { data, error } = await supabase
     .from("district_pending_view")
@@ -186,9 +194,11 @@ app.get("/district/pending", async (_req, res) => {
   res.json(data);
 });
 
-// ---------------- ADMIN MONTH CONTROL ----------------
-app.get("/admin/month-status", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
+// ---------------- MONTH LOCK ----------------
+app.get("/admin/month-status", async (req, res) => {
+  const params = requireMonthYear(req, res);
+  if (!params) return;
+  const { month, year } = params;
 
   const { data } = await supabase
     .from("month_locks")
@@ -200,23 +210,15 @@ app.get("/admin/month-status", async (_req, res) => {
   res.json({ locked: data?.locked ?? false });
 });
 
-app.post("/admin/lock-month", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
-
-  await supabase
-    .from("month_locks")
-    .upsert({ month, year, locked: true });
-
+app.post("/admin/lock-month", async (req, res) => {
+  const { month, year } = req.body;
+  await supabase.from("month_locks").upsert({ month, year, locked: true });
   res.json({ status: "locked" });
 });
 
-app.post("/admin/unlock-month", async (_req, res) => {
-  const { month, year } = await getActiveMonth();
-
-  await supabase
-    .from("month_locks")
-    .upsert({ month, year, locked: false });
-
+app.post("/admin/unlock-month", async (req, res) => {
+  const { month, year } = req.body;
+  await supabase.from("month_locks").upsert({ month, year, locked: false });
   res.json({ status: "unlocked" });
 });
 
