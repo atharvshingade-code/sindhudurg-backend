@@ -19,18 +19,6 @@ app.get("/", (_req, res) => {
   res.send("Sindhudurg Education API running");
 });
 
-// ---------------- ACTIVE MONTH ----------------
-async function getActiveMonth() {
-  const { data, error } = await supabase
-    .from("active_month")
-    .select("month, year")
-    .eq("id", 1)
-    .single();
-
-  if (error || !data) throw new Error("Active month not set");
-  return data;
-}
-
 // ---------------- TALUKA FORM DATA ----------------
 app.get("/taluka/form-data", async (req, res) => {
   try {
@@ -52,7 +40,8 @@ app.get("/taluka/form-data", async (req, res) => {
 
     if (!profile) return res.json([]);
 
-    const { month, year } = await getActiveMonth();
+    const { month, year } = req.query;
+
 
     const { data, error } = await supabase
       .from("sanctioned_posts")
@@ -110,7 +99,12 @@ app.post("/taluka/submit", async (req, res) => {
 
     if (!profile) return res.status(400).json({ error: "No taluka mapping" });
 
-    const { month, year } = await getActiveMonth();
+    const { month, year, data } = req.body;
+
+    if (!month || !year) {
+      return res.status(400).json({ error: "Month and year required" });
+    }
+
 
     const { data: lock } = await supabase
       .from("month_locks")
@@ -122,7 +116,7 @@ app.post("/taluka/submit", async (req, res) => {
     if (lock?.locked)
       return res.status(403).json({ error: "Month is locked" });
 
-    const { data } = req.body;
+    
 
     await supabase
       .from("monthly_filled")
