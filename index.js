@@ -57,7 +57,7 @@ app.get("/taluka/form-data", async (req, res) => {
         post_category_id,
         sanctioned,
         post_categories!sanctioned_posts_post_category_id_fkey(name),
-        monthly_filled!left(month, year, filled)
+        monthly_filled!left(filled, month, year)
       `)
       .eq("taluka_id", profile.taluka_id);
 
@@ -65,7 +65,7 @@ app.get("/taluka/form-data", async (req, res) => {
 
     const rows = data.map(r => {
       const record = r.monthly_filled?.find(
-        m => m.month === month && m.year === year
+        m => Number(m.month) === month && Number(m.year) === year
       );
 
       const filled = record?.filled ?? 0;
@@ -127,15 +127,17 @@ app.post("/taluka/submit", async (req, res) => {
       .eq("month", month)
       .eq("year", year);
 
-    for (const row of data) {
-      await supabase.from("monthly_filled").insert({
-        taluka_id: profile.taluka_id,
-        post_category_id: row.category_id,
-        month,
-        year,
-        filled: row.filled
-      });
-    }
+    await Promise.all(
+      data.map(row =>
+        supabase.from("monthly_filled").insert({
+          taluka_id: profile.taluka_id,
+          post_category_id: row.category_id,
+          month,
+          year,
+          filled: row.filled
+        })
+      )
+    );
 
     res.json({ status: "saved" });
   } catch (e) {
@@ -154,7 +156,8 @@ app.get("/district/summary", async (req, res) => {
     .from("district_summary_view")
     .select("*")
     .eq("month", month)
-    .eq("year", year);
+    .eq("year", year)
+    .single();
 
   if (error) return res.status(500).json(error);
   res.json(data);
